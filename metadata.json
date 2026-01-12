@@ -1,0 +1,5 @@
+{
+  "name": "Taiwan Stock Analyst AI",
+  "description": "An AI-powered professional Taiwan stock analysis tool that provides deep insights into company prospects, 3-6 month price trends, and 5-year historical dividend and EPS data.",
+  "requestFramePermissions": []
+}
