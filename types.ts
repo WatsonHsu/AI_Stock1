@@ -10,6 +10,7 @@ export interface DividendHistory {
 export interface StockAnalysis {
   stockCode: string;
   companyName: string;
+  exchange: 'TWSE' | 'TPEX'; // Added to distinguish between listed and OTC stocks
   industry: string;
   overview: string;
   futureProspects: string;
