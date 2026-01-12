@@ -1,12 +1,108 @@
 
-import React, { useState, useCallback } from 'react';
-import { Search, Info, ExternalLink, Activity, Loader2, AlertCircle, FileText, Printer, TrendingUp, BarChart3, ChevronRight } from 'lucide-react';
+import React, { useState, useCallback, useMemo } from 'react';
+import { Search, Info, ExternalLink, Activity, Loader2, AlertCircle, FileText, Printer, TrendingUp, BarChart3, ChevronRight, AreaChart } from 'lucide-react';
 import { analyzeStock } from './services/geminiService';
 import { StockAnalysis, LoadingStatus } from './types';
 
+// Professional SVG Line Chart Component
+const TechnicalSVGChart: React.FC<{ data: { labels: string[], prices: number[] } }> = ({ data }) => {
+  const { prices, labels } = data;
+  if (!prices || prices.length < 2) return null;
+
+  const width = 800;
+  const height = 300;
+  const padding = 40;
+
+  const minPrice = Math.min(...prices) * 0.95;
+  const maxPrice = Math.max(...prices) * 1.05;
+  const priceRange = maxPrice - minPrice;
+
+  const points = prices.map((price, i) => {
+    const x = padding + (i / (prices.length - 1)) * (width - padding * 2);
+    const y = height - padding - ((price - minPrice) / priceRange) * (height - padding * 2);
+    return { x, y, price, label: labels[i] };
+  });
+
+  const linePath = points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ');
+  const areaPath = `${linePath} L ${points[points.length - 1].x} ${height - padding} L ${points[0].x} ${height - padding} Z`;
+
+  // Grid lines
+  const gridLines = [0, 0.25, 0.5, 0.75, 1].map(ratio => {
+    const y = height - padding - ratio * (height - padding * 2);
+    const value = minPrice + ratio * priceRange;
+    return { y, value: value.toFixed(1) };
+  });
+
+  return (
+    <div className="my-8 bg-white border border-slate-200 rounded-2xl p-6 shadow-sm overflow-hidden print:border-slate-300 print:shadow-none">
+      <div className="flex items-center justify-between mb-4">
+        <h4 className="text-sm font-bold text-slate-700 flex items-center gap-2">
+          <AreaChart size={16} className="text-indigo-600" />
+          兩年歷史股價趨勢 (AI 數據模型)
+        </h4>
+        <div className="flex gap-4 text-[10px] font-bold text-slate-400">
+          <div className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-indigo-500"></span> 收盤價趨勢</div>
+        </div>
+      </div>
+      
+      <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-auto">
+        {/* Background Grid */}
+        {gridLines.map((line, i) => (
+          <React.Fragment key={i}>
+            <line x1={padding} y1={line.y} x2={width - padding} y2={line.y} stroke="#f1f5f9" strokeWidth="1" />
+            <text x={padding - 5} y={line.y} textAnchor="end" dominantBaseline="middle" fontSize="10" fill="#94a3b8">{line.value}</text>
+          </React.Fragment>
+        ))}
+
+        {/* Area Gradient */}
+        <defs>
+          <linearGradient id="areaGradient" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="#4f46e5" stopOpacity="0.2" />
+            <stop offset="100%" stopColor="#4f46e5" stopOpacity="0" />
+          </linearGradient>
+        </defs>
+        <path d={areaPath} fill="url(#areaGradient)" />
+
+        {/* Main Line */}
+        <path d={linePath} fill="none" stroke="#4f46e5" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+
+        {/* Labels (Every 4 months to avoid clutter) */}
+        {points.filter((_, i) => i % 4 === 0).map((p, i) => (
+          <text key={i} x={p.x} y={height - padding + 20} textAnchor="middle" fontSize="10" fill="#94a3b8" transform={`rotate(0, ${p.x}, ${height - padding + 20})`}>
+            {p.label}
+          </text>
+        ))}
+
+        {/* Highlight Circles */}
+        {points.filter((_, i) => i % 4 === 0 || i === points.length - 1).map((p, i) => (
+          <circle key={i} cx={p.x} cy={p.y} r="3" fill="white" stroke="#4f46e5" strokeWidth="2" />
+        ))}
+      </svg>
+      
+      <div className="mt-4 flex justify-between text-[10px] text-slate-400 italic">
+        <span>* 趨勢圖根據每月最後交易日之收盤價格繪製</span>
+        <span>資料區間：{labels[0]} 至 {labels[labels.length - 1]}</span>
+      </div>
+    </div>
+  );
+};
+
 // Enhanced content renderer that handles Markdown elements
 const AnalysisContent: React.FC<{ text: string }> = ({ text }) => {
-  const lines = text.split('\n');
+  // Extract and separate the JSON data from the text
+  const dataMatch = text.match(/\[DATA_START\]([\s\S]*?)\[DATA_END\]/);
+  const cleanText = text.replace(/\[DATA_START\][\s\S]*?\[DATA_END\]/, '').trim();
+  
+  let chartData = null;
+  if (dataMatch && dataMatch[1]) {
+    try {
+      chartData = JSON.parse(dataMatch[1].trim());
+    } catch (e) {
+      console.error("Failed to parse chart data", e);
+    }
+  }
+
+  const lines = cleanText.split('\n');
   const elements: React.ReactNode[] = [];
   let currentTable: string[][] = [];
 
@@ -51,6 +147,14 @@ const AnalysisContent: React.FC<{ text: string }> = ({ text }) => {
     } else {
       flushTable(i);
       const trimmed = line.trim();
+      
+      // Inject chart after Technical Analysis section if data exists
+      if ((trimmed.includes('技術走勢分析') || trimmed.includes('技術面分析')) && chartData) {
+        elements.push(<h2 key={`h2-${i}`} className="text-2xl font-bold mt-12 mb-6 text-indigo-700 border-b-2 border-indigo-100 pb-2 print:text-black print:border-black">{trimmed.replace(/#+/g, '').trim()}</h2>);
+        elements.push(<TechnicalSVGChart key={`chart-${i}`} data={chartData} />);
+        return;
+      }
+
       if (trimmed.startsWith('###')) {
         elements.push(<h3 key={i} className="text-xl font-bold mt-8 mb-4 text-slate-800 flex items-center gap-2 border-l-4 border-indigo-500 pl-3 print:border-l-4 print:border-black">
           {trimmed.replace('###', '').trim()}
@@ -152,7 +256,7 @@ const App: React.FC = () => {
               </div>
               <h2 className="text-3xl font-black text-slate-800 mb-4">掌握台股脈動，精準預測未來</h2>
               <p className="text-lg text-slate-500 leading-relaxed mb-8">
-                輸入代碼獲取 AI 深度研究報告：含法人籌碼、2年技術趨勢文字分析、新聞彙整及股利表。
+                輸入代碼獲取 AI 深度研究報告：含法人籌碼、2年技術趨勢可視化、新聞彙整及股利表。
               </p>
               <div className="flex flex-wrap justify-center gap-3">
                 {['2330', '9904', '2317', '2454', '2603'].map(code => (
@@ -177,7 +281,7 @@ const App: React.FC = () => {
             </div>
             <div className="text-center">
               <p className="text-xl font-bold text-slate-800">正在生成深度分析報告</p>
-              <p className="text-slate-500 mt-2">正在搜尋法人動態、技術走勢、與近一個月重大新聞...</p>
+              <p className="text-slate-500 mt-2">正在搜尋法人動態、提取歷史股價數據、與彙整重大新聞...</p>
             </div>
           </div>
         )}
@@ -232,11 +336,11 @@ const App: React.FC = () => {
                       <p className="text-sm text-slate-500">報告日期：{new Date().toLocaleDateString('zh-TW')}</p>
                     </div>
                   </div>
-                  <p className="text-sm italic text-slate-400">本報告由 AI 自動生成，數據來自公開市場資訊，僅供內部參考。</p>
+                  <p className="text-sm italic text-slate-400">本報告由 AI 自動生成，含趨勢可視化數據，僅供內部研究參考。</p>
                 </div>
 
                 <div className="px-8 py-10 print:px-0 print:py-0">
-                  {/* Analysis Text Body */}
+                  {/* Analysis Text Body with SVG Chart support */}
                   <AnalysisContent text={analysis.overview} />
                   
                   {/* External Links Section */}
@@ -244,7 +348,7 @@ const App: React.FC = () => {
                     <div className="flex items-center justify-between mb-6">
                       <h3 className="text-xl font-bold text-slate-800 flex items-center gap-2">
                         <BarChart3 size={22} className="text-indigo-600 print:text-black" />
-                        詳細圖表數據參考
+                        更多即時數據參考
                       </h3>
                     </div>
                     
@@ -257,7 +361,7 @@ const App: React.FC = () => {
                       >
                         <div>
                           <p className="font-bold text-slate-700 group-hover:text-indigo-700 print:text-black">Yahoo 股市資訊</p>
-                          <p className="text-xs text-slate-400 print:text-slate-600">即時報價、技術走勢與財務比率</p>
+                          <p className="text-xs text-slate-400 print:text-slate-600">即時報價、詳細籌碼與除權息</p>
                         </div>
                         <ExternalLink size={18} className="text-slate-300 group-hover:text-indigo-500 print:hidden" />
                       </a>
@@ -269,7 +373,7 @@ const App: React.FC = () => {
                       >
                         <div>
                           <p className="font-bold text-slate-700 group-hover:text-indigo-700 print:text-black">TradingView 技術分析</p>
-                          <p className="text-xs text-slate-400 print:text-slate-600">全功能互動 K 線圖與技術指標</p>
+                          <p className="text-xs text-slate-400 print:text-slate-600">使用更多進階技術指標與繪圖工具</p>
                         </div>
                         <ExternalLink size={18} className="text-slate-300 group-hover:text-indigo-500 print:hidden" />
                       </a>
@@ -290,14 +394,14 @@ const App: React.FC = () => {
               <div className="bg-gradient-to-br from-indigo-700 to-indigo-900 text-white rounded-3xl p-8 shadow-xl shadow-indigo-100 border border-indigo-500/20">
                 <h4 className="text-xl font-bold mb-4 flex items-center gap-2">
                   <TrendingUp size={20} className="text-indigo-200" />
-                  籌碼面分析精華
+                  趨勢可視化說明
                 </h4>
                 <p className="text-indigo-100 text-sm leading-relaxed mb-6">
-                  報告已彙整法人買賣超數據。特別注意外資與投信的同步買盤，通常為趨勢發動的關鍵。
+                  報告中嵌入的走勢圖是由 AI 根據歷史數據繪製。這能幫助您直觀地觀察股價在過去兩年中的週期性變化與目前所處的位階。
                 </p>
                 <div className="pt-6 border-t border-indigo-500/30">
-                  <p className="text-[10px] text-indigo-300 uppercase font-bold tracking-widest mb-1">分析引擎</p>
-                  <p className="text-sm font-medium">Gemini Pro 2025 v2</p>
+                  <p className="text-[10px] text-indigo-300 uppercase font-bold tracking-widest mb-1">AI 報告生成引擎</p>
+                  <p className="text-sm font-medium">Gemini Pro 2025 Visualization v3</p>
                 </div>
               </div>
 
@@ -336,9 +440,9 @@ const App: React.FC = () => {
                 <div className="flex items-start gap-3">
                   <Info size={20} className="text-amber-600 shrink-0 mt-0.5" />
                   <div>
-                    <h5 className="font-bold text-amber-800 text-sm mb-1">使用提醒</h5>
+                    <h5 className="font-bold text-amber-800 text-sm mb-1">列印提示</h5>
                     <p className="text-xs text-amber-700 leading-relaxed">
-                      若要儲存報告，請點擊上方「列印 / 存為 PDF」按鈕，並在印表機目的地選擇「另存為 PDF」。
+                      本走勢圖採用向量技術，列印成 PDF 時將保持極高畫質，適合存檔研究。
                     </p>
                   </div>
                 </div>
