@@ -8,53 +8,87 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
       @media print {
+        /* Hide UI elements */
         .print\:hidden {
           display: none !important;
         }
-        body {
+        
+        /* Reset layout for printing */
+        html, body {
+          height: auto !important;
+          overflow: visible !important;
           background-color: white !important;
           color: black !important;
-          padding: 0 !important;
           margin: 0 !important;
+          padding: 0 !important;
         }
-        main {
-          padding: 0 !important;
-          margin: 0 !important;
+        
+        #root, main {
+          display: block !important;
+          height: auto !important;
+          overflow: visible !important;
           max-width: 100% !important;
           width: 100% !important;
         }
-        .analysis-report {
-          font-size: 12pt;
-          line-height: 1.6;
+
+        /* Force show all content in containers that might have overflow-hidden */
+        .overflow-hidden {
+          overflow: visible !important;
         }
+
         .bg-white {
           box-shadow: none !important;
           border: none !important;
+          background: transparent !important;
         }
+
         .rounded-3xl {
           border-radius: 0 !important;
         }
-        a {
-          text-decoration: none !important;
+
+        /* Report content styling */
+        .analysis-report {
+          font-size: 11pt;
+          line-height: 1.6;
           color: black !important;
         }
+
+        /* Table printing fixes */
         table {
           width: 100% !important;
           border-collapse: collapse !important;
-          page-break-inside: auto;
+          page-break-inside: auto !important;
         }
+        
         tr {
-          page-break-inside: avoid;
-          page-break-after: auto;
+          page-break-inside: avoid !important;
+          page-break-after: auto !important;
         }
+        
         thead {
-          display: table-header-group;
+          display: table-header-group !important;
         }
-        h1, h2, h3 {
-          page-break-after: avoid;
+        
+        td, th {
+          border: 1px solid #e2e8f0 !important;
         }
+
+        /* Prevent sections from being split mid-way */
+        h1, h2, h3, h4 {
+          page-break-after: avoid !important;
+        }
+        
+        .buy-strategy-box {
+          page-break-inside: avoid !important;
+          border: 1px solid #10b981 !important;
+          background-color: #f0fdf4 !important;
+          -webkit-print-color-adjust: exact;
+          print-color-adjust: exact;
+        }
+
         @page {
-          margin: 2cm;
+          margin: 1.5cm;
+          size: auto;
         }
       }
     </style>

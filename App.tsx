@@ -1,6 +1,6 @@
 
 import React, { useState, useCallback, useRef, useEffect } from 'react';
-import { Search, Info, ExternalLink, Activity, Loader2, AlertCircle, FileText, Printer, TrendingUp, BarChart3, ChevronRight, AreaChart, Maximize2, RefreshCw } from 'lucide-react';
+import { Search, Info, ExternalLink, Activity, Loader2, AlertCircle, FileText, Printer, TrendingUp, BarChart3, ChevronRight, AreaChart, Maximize2, RefreshCw, Target, Zap } from 'lucide-react';
 import { analyzeStock } from './services/geminiService';
 import { StockAnalysis, LoadingStatus } from './types';
 
@@ -11,18 +11,12 @@ const InteractiveTechnicalChart: React.FC<{ symbol: string; exchange: 'TWSE' | '
 
   useEffect(() => {
     if (!container.current) return;
-    
-    // Clear previous widget
     container.current.innerHTML = '';
-    
     const script = document.createElement("script");
     script.src = "https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js";
     script.type = "text/javascript";
     script.async = true;
-    
-    // Construct symbol for TradingView
     const tvSymbol = `${exchange}:${symbol}`;
-
     script.innerHTML = JSON.stringify({
       "autosize": true,
       "symbol": tvSymbol,
@@ -46,7 +40,6 @@ const InteractiveTechnicalChart: React.FC<{ symbol: string; exchange: 'TWSE' | '
       "popup_width": "1000",
       "popup_height": "650"
     });
-    
     container.current.appendChild(script);
   }, [symbol, exchange, retryKey]);
 
@@ -70,40 +63,36 @@ const InteractiveTechnicalChart: React.FC<{ symbol: string; exchange: 'TWSE' | '
   );
 };
 
-// Backup SVG Static Chart Component (for printing)
+// Backup SVG Static Chart Component
 const StaticSVGChart: React.FC<{ data: { labels: string[], prices: number[] } }> = ({ data }) => {
   const { prices, labels } = data;
   if (!prices || prices.length < 2) return null;
-
   const width = 800;
   const height = 200;
   const padding = 30;
   const minPrice = Math.min(...prices) * 0.98;
   const maxPrice = Math.max(...prices) * 1.02;
   const priceRange = maxPrice - minPrice;
-
   const points = prices.map((price, i) => {
     const x = padding + (i / (prices.length - 1)) * (width - padding * 2);
     const y = height - padding - ((price - minPrice) / priceRange) * (height - padding * 2);
     return { x, y };
   });
-
   const linePath = points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ');
-
   return (
     <div className="hidden print:block my-6 border border-slate-300 p-4">
       <p className="text-xs font-bold mb-2">歷史價格走勢圖 (列印版)</p>
-      <svg viewBox={`0 0 ${width} ${height}`} className="w-full">
+      <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-auto">
         <path d={linePath} fill="none" stroke="#000" strokeWidth="1.5" />
         {points.filter((_, i) => i % 6 === 0).map((p, i) => (
-          <text key={i} x={p.x} y={height - 5} fontSize="8" textAnchor="middle">{labels[i*6]}</text>
+          <text key={i} x={p.x} y={height - 5} fontSize="8" textAnchor="middle">{labels[i*6] || labels[i]}</text>
         ))}
       </svg>
     </div>
   );
 };
 
-// Enhanced content renderer
+// Enhanced content renderer with Buy Strategy highlighting
 const AnalysisContent: React.FC<{ text: string; stockCode: string; exchange: 'TWSE' | 'TPEX' }> = ({ text, stockCode, exchange }) => {
   const dataMatch = text.match(/\[DATA_START\]([\s\S]*?)\[DATA_END\]/);
   const cleanText = text.replace(/\[DATA_START\][\s\S]*?\[DATA_END\]/, '').trim();
@@ -116,11 +105,13 @@ const AnalysisContent: React.FC<{ text: string; stockCode: string; exchange: 'TW
   const lines = cleanText.split('\n');
   const elements: React.ReactNode[] = [];
   let currentTable: string[][] = [];
+  let isInsideBuyStrategy = false;
+  let buyStrategyLines: React.ReactNode[] = [];
 
   const flushTable = (index: number) => {
     if (currentTable.length > 0) {
       elements.push(
-        <div key={`table-${index}`} className="my-6 overflow-x-auto rounded-xl border border-slate-200 print:border-slate-300">
+        <div key={`table-${index}`} className="my-6 overflow-x-auto print:overflow-visible rounded-xl border border-slate-200 print:border-slate-300">
           <table className="min-w-full divide-y divide-slate-200 print:divide-slate-300">
             <thead className="bg-slate-50 print:bg-slate-100">
               <tr>
@@ -151,47 +142,107 @@ const AnalysisContent: React.FC<{ text: string; stockCode: string; exchange: 'TW
 
   lines.forEach((line, i) => {
     const isTableRow = line.trim().startsWith('|') && line.trim().endsWith('|');
+    const trimmed = line.trim();
     
+    if (trimmed.includes('建議買入價格') || trimmed.includes('交易時機')) {
+      flushTable(i);
+      isInsideBuyStrategy = true;
+      return;
+    } else if (isInsideBuyStrategy && (trimmed.startsWith('##') || trimmed.match(/^[*]*7\./) || trimmed.match(/^[*]*8\./))) {
+      elements.push(
+        <div key={`buy-strategy-box-${i}`} className="buy-strategy-box my-10 bg-emerald-50 border-2 border-emerald-200 rounded-3xl p-8 relative overflow-hidden print:border-slate-300 print:bg-white print:p-6">
+          <div className="absolute top-0 right-0 p-4 opacity-10 print:hidden">
+            <Target size={120} className="text-emerald-600" />
+          </div>
+          <div className="relative z-10">
+            <div className="flex items-center gap-3 mb-6">
+              <div className="bg-emerald-600 p-2 rounded-xl text-white shadow-lg shadow-emerald-200 print:shadow-none print:text-black print:bg-transparent print:p-0">
+                <Zap size={20} className="print:hidden" />
+              </div>
+              <h2 className="text-2xl font-black text-emerald-900 print:text-black">建議買入價格與時機策略</h2>
+            </div>
+            <div className="space-y-4">
+              {buyStrategyLines}
+            </div>
+          </div>
+        </div>
+      );
+      buyStrategyLines = [];
+      isInsideBuyStrategy = false;
+    }
+
     if (isTableRow) {
       const cells = line.split('|').filter((_, idx, arr) => idx > 0 && idx < arr.length - 1);
       currentTable.push(cells);
     } else {
-      flushTable(i);
-      const trimmed = line.trim();
+      if (!isInsideBuyStrategy) flushTable(i);
       
-      // Inject chart after Technical Analysis section
-      if ((trimmed.includes('技術走勢分析') || trimmed.includes('技術面分析'))) {
-        elements.push(<h2 key={`h2-${i}`} className="text-2xl font-bold mt-12 mb-6 text-indigo-700 border-b-2 border-indigo-100 pb-2 print:text-black print:border-black">{trimmed.replace(/#+/g, '').trim()}</h2>);
-        elements.push(<InteractiveTechnicalChart key={`int-chart-${i}`} symbol={stockCode} exchange={exchange} />);
-        if (backupChartData) elements.push(<StaticSVGChart key={`static-chart-${i}`} data={backupChartData} />);
-        return;
-      }
+      const content = (
+        <React.Fragment key={i}>
+          {trimmed.startsWith('###') ? (
+            <h3 className="text-xl font-bold mt-8 mb-4 text-slate-800 flex items-center gap-2 border-l-4 border-indigo-500 pl-3 print:border-l-4 print:border-black">
+              {trimmed.replace('###', '').trim()}
+            </h3>
+          ) : trimmed.startsWith('##') ? (
+            <h2 className="text-2xl font-bold mt-12 mb-6 text-indigo-700 border-b-2 border-indigo-100 pb-2 print:text-black print:border-black">
+              {trimmed.replace('##', '').trim()}
+            </h2>
+          ) : trimmed.startsWith('# ') ? (
+            <h1 className="text-3xl font-black mt-4 mb-8 text-slate-900 border-b-4 border-slate-900 pb-4">
+              {trimmed.replace('#', '').trim()}
+            </h1>
+          ) : trimmed.startsWith('-') || trimmed.startsWith('*') ? (
+            <div className="flex gap-3 ml-4 mb-3">
+              <ChevronRight size={16} className={`${isInsideBuyStrategy ? 'text-emerald-500' : 'text-indigo-500'} shrink-0 mt-1 print:hidden`} />
+              <p className={`${isInsideBuyStrategy ? 'text-emerald-900 font-medium' : 'text-slate-600'} print:text-slate-900 leading-relaxed`}>
+                {trimmed.replace(/^[-*]\s*/, '').trim()}
+              </p>
+            </div>
+          ) : trimmed === '' ? null : (
+            <p className={`${isInsideBuyStrategy ? 'text-emerald-800 font-bold text-lg' : 'text-slate-600'} print:text-slate-900 mb-4 leading-relaxed`}>
+              {line}
+            </p>
+          )}
+        </React.Fragment>
+      );
 
-      if (trimmed.startsWith('###')) {
-        elements.push(<h3 key={i} className="text-xl font-bold mt-8 mb-4 text-slate-800 flex items-center gap-2 border-l-4 border-indigo-500 pl-3 print:border-l-4 print:border-black">
-          {trimmed.replace('###', '').trim()}
-        </h3>);
-      } else if (trimmed.startsWith('##')) {
-        elements.push(<h2 key={i} className="text-2xl font-bold mt-12 mb-6 text-indigo-700 border-b-2 border-indigo-100 pb-2 print:text-black print:border-black">{trimmed.replace('##', '').trim()}</h2>);
-      } else if (trimmed.startsWith('# ')) {
-        elements.push(<h1 key={i} className="text-3xl font-black mt-4 mb-8 text-slate-900 border-b-4 border-slate-900 pb-4">{trimmed.replace('#', '').trim()}</h1>);
-      } else if (trimmed.startsWith('-') || trimmed.startsWith('*')) {
-        elements.push(
-          <div key={i} className="flex gap-3 ml-4 mb-3">
-            <ChevronRight size={16} className="text-indigo-500 shrink-0 mt-1 print:hidden" />
-            <p className="text-slate-600 print:text-slate-900 leading-relaxed">{trimmed.substring(1).trim()}</p>
-          </div>
-        );
-      } else if (trimmed === '') {
-        // Skip
+      if (isInsideBuyStrategy) {
+        if (content) buyStrategyLines.push(content);
       } else {
-        elements.push(<p key={i} className="text-slate-600 print:text-slate-900 mb-4 leading-relaxed">{line}</p>);
+        if ((trimmed.includes('技術走勢分析') || trimmed.includes('技術面分析'))) {
+          elements.push(<h2 key={`h2-${i}`} className="text-2xl font-bold mt-12 mb-6 text-indigo-700 border-b-2 border-indigo-100 pb-2 print:text-black print:border-black">{trimmed.replace(/#+/g, '').trim()}</h2>);
+          elements.push(<InteractiveTechnicalChart key={`int-chart-${i}`} symbol={stockCode} exchange={exchange} />);
+          if (backupChartData) elements.push(<StaticSVGChart key={`static-chart-${i}`} data={backupChartData} />);
+          return;
+        }
+        if (content) elements.push(content);
       }
     }
   });
-  flushTable(lines.length);
+  
+  if (isInsideBuyStrategy && buyStrategyLines.length > 0) {
+    elements.push(
+      <div key={`buy-strategy-final`} className="buy-strategy-box my-10 bg-emerald-50 border-2 border-emerald-200 rounded-3xl p-8 relative overflow-hidden print:border-slate-300 print:bg-white print:p-6">
+        <div className="absolute top-0 right-0 p-4 opacity-10 print:hidden">
+          <Target size={120} className="text-emerald-600" />
+        </div>
+        <div className="relative z-10">
+          <div className="flex items-center gap-3 mb-6">
+            <div className="bg-emerald-600 p-2 rounded-xl text-white shadow-lg shadow-emerald-200 print:bg-transparent print:p-0 print:text-black print:shadow-none">
+              <Zap size={20} className="print:hidden" />
+            </div>
+            <h2 className="text-2xl font-black text-emerald-900 print:text-black">建議買入價格與時機策略</h2>
+          </div>
+          <div className="space-y-4">
+            {buyStrategyLines}
+          </div>
+        </div>
+      </div>
+    );
+  }
 
-  return <div className="analysis-report print:text-black">{elements}</div>;
+  flushTable(lines.length);
+  return <div className="analysis-report print:text-black print:overflow-visible">{elements}</div>;
 };
 
 const App: React.FC = () => {
@@ -203,7 +254,6 @@ const App: React.FC = () => {
   const handleSearch = useCallback(async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     if (!stockCode.trim()) return;
-
     setStatus(LoadingStatus.LOADING);
     setError(null);
     try {
@@ -222,8 +272,7 @@ const App: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen flex flex-col font-sans bg-slate-50 print:bg-white">
-      {/* Header (Hidden on print) */}
+    <div className="min-h-screen flex flex-col font-sans bg-slate-50 print:bg-white print:block print:h-auto">
       <header className="bg-white border-b border-slate-200 sticky top-0 z-50 backdrop-blur-md bg-white/90 print:hidden">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex flex-col md:flex-row items-center justify-between gap-4">
           <div className="flex items-center gap-3">
@@ -235,7 +284,6 @@ const App: React.FC = () => {
               <p className="text-[10px] text-slate-400 font-medium uppercase tracking-widest">Taiwan Stock Intelligence</p>
             </div>
           </div>
-          
           <form onSubmit={handleSearch} className="relative w-full md:w-96">
             <input
               type="text"
@@ -257,8 +305,7 @@ const App: React.FC = () => {
         </div>
       </header>
 
-      {/* Main Content */}
-      <main className="flex-grow max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 w-full">
+      <main className="flex-grow max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 w-full print:py-0 print:px-0 print:max-w-none">
         {status === LoadingStatus.IDLE && (
           <div className="text-center py-24 print:hidden">
             <div className="max-w-xl mx-auto">
@@ -268,7 +315,7 @@ const App: React.FC = () => {
               </div>
               <h2 className="text-3xl font-black text-slate-800 mb-4">掌握台股脈動，精準預測未來</h2>
               <p className="text-lg text-slate-500 leading-relaxed mb-8">
-                輸入代碼獲取 AI 深度研究報告：含法人籌碼、互動式走勢圖、與 5 年 EPS 成長分析。
+                輸入代碼獲取 AI 深度研究報告：含具體買點建議、互動式走勢圖、與 5 年 EPS 成長分析。
               </p>
               <div className="flex flex-wrap justify-center gap-3">
                 {['2330', '9904', '2317', '2454', '2603'].map(code => (
@@ -293,7 +340,7 @@ const App: React.FC = () => {
             </div>
             <div className="text-center">
               <p className="text-xl font-bold text-slate-800">正在生成深度分析報告</p>
-              <p className="text-slate-500 mt-2">正在判定交易所類型並檢索最新財報數據...</p>
+              <p className="text-slate-500 mt-2">正在計算買進區間並評估交易時機策略...</p>
             </div>
           </div>
         )}
@@ -305,29 +352,21 @@ const App: React.FC = () => {
             </div>
             <h3 className="text-xl font-bold text-slate-900 mb-2">無法完成分析</h3>
             <p className="text-slate-500 mb-8">{error}</p>
-            <button
-              onClick={() => handleSearch()}
-              className="px-8 py-3 bg-red-600 text-white font-bold rounded-2xl hover:bg-red-700 transition-all shadow-lg shadow-red-200"
-            >
-              重新搜尋
-            </button>
+            <button onClick={() => handleSearch()} className="px-8 py-3 bg-red-600 text-white font-bold rounded-2xl hover:bg-red-700 transition-all">重新搜尋</button>
           </div>
         )}
 
         {status === LoadingStatus.SUCCESS && analysis && (
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-            <div className="lg:col-span-8 space-y-8 print:col-span-12">
-              <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden print:border-none print:shadow-none">
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start print:block">
+            <div className="lg:col-span-8 space-y-8 print:col-span-12 print:space-y-0">
+              <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden print:border-none print:shadow-none print:overflow-visible">
                 <div className="bg-slate-50/50 border-b border-slate-200 px-8 py-6 flex items-center justify-between print:hidden">
                   <div className="flex items-center gap-3 text-slate-800 font-bold text-lg">
                     <FileText size={22} className="text-indigo-600" />
                     專業深度分析報告
                   </div>
                   <div className="flex items-center gap-3">
-                    <button 
-                      onClick={handlePrint}
-                      className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2.5 rounded-xl text-sm font-bold transition-all shadow-md active:scale-95"
-                    >
+                    <button onClick={handlePrint} className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2.5 rounded-xl text-sm font-bold transition-all shadow-md active:scale-95">
                       <Printer size={18} /> 列印 / 存為 PDF
                     </button>
                     <span className="bg-indigo-100 text-indigo-700 text-xs font-black px-3 py-1 rounded-full">
@@ -335,7 +374,6 @@ const App: React.FC = () => {
                     </span>
                   </div>
                 </div>
-
                 <div className="hidden print:block mb-10 pb-6 border-b-2 border-slate-900">
                   <div className="flex justify-between items-end mb-4">
                     <h1 className="text-4xl font-black text-slate-900">台股深度研究報告</h1>
@@ -345,53 +383,21 @@ const App: React.FC = () => {
                     </div>
                   </div>
                 </div>
-
-                <div className="px-8 py-10 print:px-0 print:py-0">
+                <div className="px-8 py-10 print:px-0 print:py-0 print:overflow-visible">
                   <AnalysisContent text={analysis.overview} stockCode={analysis.stockCode} exchange={analysis.exchange} />
-                  
-                  <div className="mt-12 pt-8 border-t border-slate-100 print:hidden">
-                    <h3 className="text-xl font-bold text-slate-800 mb-6 flex items-center gap-2">
-                      <BarChart3 size={22} className="text-indigo-600" />
-                      更多外部數據
-                    </h3>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                      <a href={`https://tw.stock.yahoo.com/quote/${analysis.stockCode}.${analysis.exchange === 'TWSE' ? 'TW' : 'TWO'}`} target="_blank" rel="noreferrer" className="p-5 bg-slate-50 border border-slate-200 rounded-2xl hover:border-indigo-300 transition-all flex justify-between items-center group">
-                        <span className="font-bold text-slate-700 group-hover:text-indigo-700">Yahoo 股市詳情</span>
-                        <ExternalLink size={18} className="text-slate-300 group-hover:text-indigo-500" />
-                      </a>
-                      <a href={`https://www.tradingview.com/symbols/${analysis.exchange}-${analysis.stockCode}/`} target="_blank" rel="noreferrer" className="p-5 bg-slate-50 border border-slate-200 rounded-2xl hover:border-indigo-300 transition-all flex justify-between items-center group">
-                        <span className="font-bold text-slate-700 group-hover:text-indigo-700">TradingView 專頁</span>
-                        <ExternalLink size={18} className="text-slate-300 group-hover:text-indigo-500" />
-                      </a>
-                    </div>
-                  </div>
                 </div>
               </div>
             </div>
-
             <div className="lg:col-span-4 space-y-6 print:hidden">
               <div className="bg-gradient-to-br from-indigo-700 to-indigo-900 text-white rounded-3xl p-8 shadow-xl">
                 <h4 className="text-xl font-bold mb-4 flex items-center gap-2">
                   <TrendingUp size={20} className="text-indigo-200" />
-                  市場動態監測
+                  交易策略模組
                 </h4>
                 <p className="text-indigo-100 text-sm leading-relaxed mb-6">
-                  報告已鎖定交易所為 <span className="font-black text-white">{analysis.exchange}</span>。互動走勢圖支援多項技術指標，滑鼠滾輪可進行縮放觀測。
+                  報告已鎖定 <span className="font-black text-white">{analysis.exchange}</span> 交易所。本次分析特別強化了「建議買入區間」，幫助您在波動市場中尋找相對安全的防禦位與進攻點。
                 </p>
               </div>
-
-              {analysis.sourceUrls.length > 0 && (
-                <div className="bg-white rounded-3xl shadow-sm border border-slate-200 p-6">
-                  <h4 className="font-bold text-slate-800 mb-4">數據引用來源</h4>
-                  <div className="space-y-3">
-                    {analysis.sourceUrls.map((url, idx) => (
-                      <a key={idx} href={url.uri} target="_blank" rel="noopener noreferrer" className="block text-sm text-slate-500 hover:text-indigo-600 truncate border-l-2 border-slate-100 pl-3 hover:border-indigo-500">
-                        {url.title}
-                      </a>
-                    ))}
-                  </div>
-                </div>
-              )}
             </div>
           </div>
         )}
